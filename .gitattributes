@@ -1,2 +1,206 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+;******************************************************************
+;Universidad del Valle de Guatemala
+;IE2023 Programación de Microcontroladores
+;Autor: Fernando Donis
+;Compilador: PIC-AS (v2.36), MPLAB X IDE (v6.00)
+;Proyecto: Laboratorio 2
+;Hardware: PIC16F887
+;Creado: 07/08/2022
+;Última Modificación: 08/08/2022
+;******************************************************************
+PROCESSOR 16F887
+#include <xc.inc> 
+;**************************************************************
+;Palabra de configuración
+;**************************************************************
+ ;CONFIG1
+  CONFIG FOSC = INTRC_NOCLKOUT
+  CONFIG WDTE = OFF
+  CONFIG PWRTE = ON
+  CONFIG MCLRE = OFF
+  CONFIG CP = OFF
+  CONFIG CPD = OFF
+  CONFIG BOREN = OFF
+  CONFIG IESO = OFF
+  CONFIG FCMEN = OFF
+  CONFIG LVP = ON
+  
+ ;CONFIG2
+  CONFIG WRT=OFF
+  CONFIG BOR4V=BOR40V
+;***************************************************************************************************************************************************************************************
+;Variables
+;**************************************************************************************************************************************************************************************
+
+PSECT udata_bank0
+    contador: DS 1
+    count: DS 2	;separa 2 bytes
+;***************************************************************************************************************************************************************************************
+;Vector Reset
+;***************************************************************************************************************************************************************************************
+PSECT resVect, class = CODE, abs, delta = 2
+ORG 00h	    ;posicion 0
+ 
+resetVec:	    ;resetear a posicion 0
+    PAGESEL main    
+    goto main
+		
+;***************************************************************************************************************************************************************************************
+;Codigo Principal
+;***************************************************************************************************************************************************************************************
+PSECT CODE, delta=2, abs
+ORG 100h	;posicion codigo
+ 
+tab:
+    clrf    PCLATH
+    bsf	    PCLATH, 0	;PCLATH = 01
+    andlw   00001111B	;establecer todo mayor a 16 a 0
+    addwf   PCL		;Se suma PCLATH, PCL, W
+    retlw   00111111B	;regresa 0
+    retlw   00000110B	;1
+    retlw   01011011B	;2
+    retlw   01001111B	;3 etc
+    retlw   01100110B
+    retlw   01101101B
+    retlw   01111101B
+    retlw   00000111B
+    retlw   01111111B
+    retlw   01101111B
+    retlw   01110111B	;A
+    retlw   01111100B	;B
+    retlw   00111001B	;C etc
+    retlw   01011110B
+    retlw   01111001B
+    retlw   01110001B
+    
+main:
+   call	    conf1	;entradas y salidas
+   call	    confre	;oscilador interno
+   call	    conftim	;timer0
+   banksel  PORTA	;Por si no esta en el banco a usar
+   
+loop:
+   btfss    T0IF	;si se activa, pasaron 100 ms, salta
+   goto	    $-1
+   incf	    PORTA
+   
+   call	    contaseg	;contador 3 de 1 seg
+   call	    reintim	;reinicia flag
+   
+   btfsc    PORTB, 0	;si pin 0 es 1 pasa al siguiente
+   call	    incportc	;llama sub a aumentar
+   
+   btfsc    PORTB, 1	;si pin 1 es 1 pasa al siguiente
+   call	    decportc	;llama sub a disminuir
+   
+   call	    comp	;llama sub comp
+   goto	    loop
+   
+conf1:
+   banksel  ANSEL   ;banco 3
+   clrf	    ANSEL   ;Puerto A digital
+   clrf	    ANSELH  ;Puerto B digital
+   
+   banksel  TRISA   ;banco 1
+   clrf	    TRISA   ;PORTA salida de 100 ms
+   clrf	    TRISC   ;PORTC salida display 7
+   clrf	    TRISD   ;PORTD salida contador
+   
+   bsf	    TRISB, 0;Puerto B entrada
+   bsf	    TRISB, 1
+   
+   banksel  PORTA   ;banco 0
+   clrf	    PORTA   ;PORTA valor 0
+   clrf	    PORTB   ;PORTB valor 0
+   clrf	    PORTC   ;PORTC valor 0
+   clrf	    PORTD   ;PORTD valor 0
+   return
+   
+confre:
+   banksel OSCCON   ;banco OSCCON para oscilador
+		    ;nombre bits 4,5,6
+   bcf	    IRCF2   ;(0)
+   bsf	    IRCF1   ;(1)
+   bcf	    IRCF0   ;(0)
+   bsf	    SCS	    ;bit 1 para reloj interno
+   return
+   
+conftim:
+    bcf	    T0CS    ;reloj interno
+    bcf	    PSA	    ;prescaler para timer0
+    bsf	    PS2
+    bsf	    PS1
+    bsf	    PS0
+    banksel PORTA
+    call reintim    ;llama sub reintim
+    return
+    
+reintim:
+    BANKSEL TMR0    
+    movlw   231	    ;delay de 100ms cada activacion
+    
+    movwf   TMR0    ;w a f timer0
+    bcf	    T0IF    ;Flag de interrupcion del timer apagado
+    return
+    
+incportc:
+    btfss   PORTB, 0;instruccion de antirrebote
+    goto    $-1
+    btfsc   PORTB, 0
+    goto    $-1
+    
+    incf    contador	;aumenta contador
+    movf    contador, W	;contador a W para acumular
+    call    tab		;se llama la tabla para convertir el valor de w
+    movwf   PORTC	;valor convertido a puerto C
+    return
+    
+decportc:
+    btfss   PORTB, 1
+    goto    $-1
+    btfsc   PORTB, 1
+    goto    $-1
+    
+    decf    contador	;disminuye contador
+    movf    contador, W	;contador a W para acumular
+    call    tab		;se llama la tabla para convertir el valor de w
+    movwf   PORTC	;valor convertido a puerto C
+    return
+
+contaseg:
+    movlw   10		;literal 10 a acumulador W
+    subwf   PORTA, 0	;se resta de W el puerto A
+    btfsc   STATUS, 2	;si es cero, se coloca bit 2, del registro estatus en 1
+    call    contseg	;se llama sub contaseg
+    return
+    
+contseg:
+    clrf    PORTA	;limpiar PORTA
+    incf    PORTD	;aumenta puerto D
+    btfsc   PORTD, 4	;contador 3 de 4 bits
+    clrf    PORTD	;limpia puerto D
+    return
+    
+comp:
+    movf    PORTD, W	;valor del puerto D al acumulador
+    subwf   contador, 0	;se resta valor del display a W
+    btfsc   STATUS, 2	;si es cero, se coloca bit 2
+    
+    call    alarm   ;llama sub alarm
+    return
+    
+alarm:
+    clrf    PORTD	;Limpia Puerto D
+    bsf	    PORTC, 7	;establece 1 pin 7 del PORTC
+    call    delay	;se llama sub delay
+    bcf	    PORTC, 7	;establece 0 pin 7 del PORTC
+    return
+    
+delay:
+    movlw   165		;valor inicial
+    movwf   count
+    decfsz  count, 1	;diminuir contador y guardar
+    goto    $-1		;ejecutar linea anterior
+    return
+
+end
